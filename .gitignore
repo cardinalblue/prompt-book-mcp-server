@@ -2,6 +2,9 @@
 node_modules/
 jspm_packages/
 
+# Credentials
+.npmrc
+
 # Environment variables
 .env
 .env.local

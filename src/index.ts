@@ -9,15 +9,32 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { Client } from '@notionhq/client';
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import { v4 as uuidv4 } from 'uuid';
 
-// Configuration from environment variables
-const NOTION_TOKEN = process.env.NOTION_TOKEN;
-const PROMPTS_DATABASE_ID = process.env.NOTION_DATABASE_ID;
+// Configuration file path
+const CONFIG_DIR = path.join(os.homedir(), '.mcp_config');
+const CONFIG_FILE = path.join(CONFIG_DIR, 'prompt_book.json');
 
-// Error message for missing or invalid database
+// Error messages
+const NO_ACTIVE_PROMPT_BOOK = "No active prompt book selected. Use the activate_prompt_book tool to select a prompt book.";
 const DATABASE_ERROR_MESSAGE = "Database ID is empty or invalid. Please use the create_prompt_database tool to create a new prompt database.";
 
 // Interfaces for our data structures
+interface PromptBook {
+  id: string;
+  name: string;
+  notion_token: string;
+  notion_database_id: string;
+}
+
+interface PromptBookConfig {
+  promptBooks: PromptBook[];
+  activePromptBookId?: string;
+}
+
 interface PromptListItem {
   id: string;
   title: string;
@@ -37,15 +54,16 @@ interface PromptContent {
 
 class PromptBookServer {
   private server: Server;
-  private notion: Client;
-  private databaseId: string;
+  private notion: Client | null = null;
+  private config: PromptBookConfig = { promptBooks: [] };
+  private activePromptBook: PromptBook | null = null;
 
   constructor() {
     // Initialize the MCP server
     this.server = new Server(
       {
         name: 'prompt-book-server',
-        version: '0.1.0',
+        version: '0.2.0',
       },
       {
         capabilities: {
@@ -54,19 +72,9 @@ class PromptBookServer {
       }
     );
 
-    // Check if required environment variables are provided
-    if (!NOTION_TOKEN) {
-      throw new Error('NOTION_TOKEN environment variable is required');
-    }
+    // Load configuration
+    this.loadConfig();
     
-    // Store the database ID (may be empty or invalid)
-    this.databaseId = PROMPTS_DATABASE_ID || '';
-
-    // Initialize the Notion client
-    this.notion = new Client({
-      auth: NOTION_TOKEN,
-    });
-
     // Set up tool handlers
     this.setupToolHandlers();
     
@@ -78,10 +86,148 @@ class PromptBookServer {
     });
   }
 
+  // Load configuration from file
+  private loadConfig() {
+    try {
+      // Check if config directory exists, create if not
+      if (!fs.existsSync(CONFIG_DIR)) {
+        fs.mkdirSync(CONFIG_DIR, { recursive: true });
+      }
+
+      // Check if config file exists, create empty config if not
+      if (!fs.existsSync(CONFIG_FILE)) {
+        this.config = { promptBooks: [] };
+        this.saveConfig();
+        return;
+      }
+
+      // Read and parse config file
+      const configData = fs.readFileSync(CONFIG_FILE, 'utf8');
+      this.config = JSON.parse(configData);
+
+      // Set active prompt book if one is specified
+      if (this.config.activePromptBookId) {
+        this.setActivePromptBook(this.config.activePromptBookId);
+      }
+    } catch (error) {
+      console.error('Error loading configuration:', error);
+      this.config = { promptBooks: [] };
+    }
+  }
+
+  // Save configuration to file
+  private saveConfig() {
+    try {
+      fs.writeFileSync(CONFIG_FILE, JSON.stringify(this.config, null, 2), 'utf8');
+    } catch (error) {
+      console.error('Error saving configuration:', error);
+    }
+  }
+
+  // Set active prompt book by ID
+  private setActivePromptBook(promptBookId: string): boolean {
+    const promptBook = this.config.promptBooks.find(pb => pb.id === promptBookId);
+    
+    if (!promptBook) {
+      this.activePromptBook = null;
+      this.notion = null;
+      return false;
+    }
+
+    this.activePromptBook = promptBook;
+    this.notion = new Client({
+      auth: promptBook.notion_token,
+    });
+    
+    // Update config
+    this.config.activePromptBookId = promptBookId;
+    this.saveConfig();
+    
+    return true;
+  }
+
   private setupToolHandlers() {
     // List all available tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: [
+        // Configuration management tools
+        {
+          name: 'create_prompt_book_config',
+          description: 'Add a new prompt book configuration',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                description: 'Name of the prompt book',
+              },
+              notion_token: {
+                type: 'string',
+                description: 'Notion API token with access to the prompts database',
+              },
+              notion_database_id: {
+                type: 'string',
+                description: 'ID of the Notion database containing the prompts',
+              },
+            },
+            required: ['name', 'notion_token', 'notion_database_id'],
+          },
+        },
+        {
+          name: 'remove_prompt_book_config',
+          description: 'Remove a prompt book configuration',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: 'ID of the prompt book to remove',
+              },
+            },
+            required: ['id'],
+          },
+        },
+        {
+          name: 'activate_prompt_book',
+          description: 'Set a prompt book as active',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: 'ID of the prompt book to activate',
+              },
+            },
+            required: ['id'],
+          },
+        },
+        {
+          name: 'list_prompt_books',
+          description: 'List all configured prompt books',
+          inputSchema: {
+            type: 'object',
+            properties: {},
+          },
+        },
+        {
+          name: 'rename_prompt_book',
+          description: 'Rename a prompt book configuration',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              id: {
+                type: 'string',
+                description: 'ID of the prompt book to rename',
+              },
+              name: {
+                type: 'string',
+                description: 'New name for the prompt book',
+              },
+            },
+            required: ['id', 'name'],
+          },
+        },
+        // Existing tools
         {
           name: 'list_prompts',
           description: 'List all prompts in the database',
@@ -169,7 +315,7 @@ class PromptBookServer {
         },
         {
           name: 'create_prompt_database',
-          description: 'Create a new prompt database when none exists',
+          description: 'Create a new prompt database and add it to the configuration',
           inputSchema: {
             type: 'object',
             properties: {
@@ -177,8 +323,20 @@ class PromptBookServer {
                 type: 'string',
                 description: 'ID of the page where the database will be created',
               },
+              name: {
+                type: 'string',
+                description: 'Name of the prompt book to create',
+              },
+              notion_token: {
+                type: 'string',
+                description: 'Notion API token with access to the prompts database',
+              },
+              activate: {
+                type: 'boolean',
+                description: 'Whether to set the new prompt book as active (default: false)',
+              },
             },
-            required: ['page_id'],
+            required: ['page_id', 'name', 'notion_token'],
           },
         },
         {
@@ -205,6 +363,11 @@ class PromptBookServer {
                 items: {
                   type: 'string'
                 }
+              },
+              allow_new_type: {
+                type: 'boolean',
+                description: 'If true, allows creating a new type if it doesn\'t exist in the database. Default is false.',
+                default: false
               },
             },
             required: ['name', 'detailed_prompt', 'type'],
@@ -249,13 +412,36 @@ class PromptBookServer {
     // Handle tool calls
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       try {
-        // Handle create_prompt_database separately as it doesn't require an existing database
-        if (request.params.name === 'create_prompt_database') {
+        // Handle configuration management tools
+        if (request.params.name === 'create_prompt_book_config') {
+          return await this.createPromptBookConfig(request.params.arguments);
+        } else if (request.params.name === 'remove_prompt_book_config') {
+          return await this.removePromptBookConfig(request.params.arguments);
+        } else if (request.params.name === 'activate_prompt_book') {
+          return await this.activatePromptBook(request.params.arguments);
+        } else if (request.params.name === 'list_prompt_books') {
+          return await this.listPromptBooks();
+        } else if (request.params.name === 'rename_prompt_book') {
+          return await this.renamePromptBook(request.params.arguments);
+        } else if (request.params.name === 'create_prompt_database') {
+          // Handle create_prompt_database separately as it now creates a new prompt book
           return await this.createPromptDatabase(request.params.arguments);
         }
         
-        // For all other tools, check if database ID is valid
-        if (!this.databaseId) {
+        // For all other tools, check if active prompt book is set and database ID is valid
+        if (!this.activePromptBook || !this.notion) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: NO_ACTIVE_PROMPT_BOOK,
+              },
+            ],
+            isError: true,
+          };
+        }
+        
+        if (!this.activePromptBook.notion_database_id) {
           return {
             content: [
               {
@@ -306,8 +492,293 @@ class PromptBookServer {
     });
   }
 
+  // Create a new prompt book configuration
+  private async createPromptBookConfig(args: any): Promise<any> {
+    if (!args?.name) {
+      throw new McpError(ErrorCode.InvalidParams, 'Name is required');
+    }
+    if (!args?.notion_token) {
+      throw new McpError(ErrorCode.InvalidParams, 'Notion token is required');
+    }
+    if (!args?.notion_database_id) {
+      throw new McpError(ErrorCode.InvalidParams, 'Notion database ID is required');
+    }
+
+    try {
+      // Create new prompt book
+      const newPromptBook: PromptBook = {
+        id: uuidv4(),
+        name: args.name,
+        notion_token: args.notion_token,
+        notion_database_id: args.notion_database_id,
+      };
+
+      // Add to config
+      this.config.promptBooks.push(newPromptBook);
+      
+      // If this is the first prompt book, set it as active
+      if (this.config.promptBooks.length === 1) {
+        this.config.activePromptBookId = newPromptBook.id;
+        this.setActivePromptBook(newPromptBook.id);
+      }
+      
+      // Save config
+      this.saveConfig();
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              message: 'Prompt book configuration created successfully',
+              prompt_book_id: newPromptBook.id,
+              prompt_book_name: newPromptBook.name,
+              is_active: this.config.activePromptBookId === newPromptBook.id,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      console.error('Error creating prompt book configuration:', error);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error creating prompt book configuration: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  // Remove a prompt book configuration
+  private async removePromptBookConfig(args: any): Promise<any> {
+    if (!args?.id) {
+      throw new McpError(ErrorCode.InvalidParams, 'Prompt book ID is required');
+    }
+
+    try {
+      const promptBookId = args.id;
+      const promptBookIndex = this.config.promptBooks.findIndex(pb => pb.id === promptBookId);
+      
+      if (promptBookIndex === -1) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error: Prompt book with ID "${promptBookId}" not found.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Remove prompt book
+      this.config.promptBooks.splice(promptBookIndex, 1);
+      
+      // If the removed prompt book was active, clear active prompt book
+      if (this.config.activePromptBookId === promptBookId) {
+        this.config.activePromptBookId = undefined;
+        this.activePromptBook = null;
+        this.notion = null;
+      }
+      
+      // Save config
+      this.saveConfig();
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              message: 'Prompt book configuration removed successfully',
+              prompt_book_id: promptBookId,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      console.error('Error removing prompt book configuration:', error);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error removing prompt book configuration: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  // Activate a prompt book
+  private async activatePromptBook(args: any): Promise<any> {
+    if (!args?.id) {
+      throw new McpError(ErrorCode.InvalidParams, 'Prompt book ID is required');
+    }
+
+    try {
+      const promptBookId = args.id;
+      const promptBook = this.config.promptBooks.find(pb => pb.id === promptBookId);
+      
+      if (!promptBook) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error: Prompt book with ID "${promptBookId}" not found.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Set active prompt book
+      if (!this.setActivePromptBook(promptBookId)) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error: Failed to activate prompt book with ID "${promptBookId}".`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              message: 'Prompt book activated successfully',
+              prompt_book_id: promptBookId,
+              prompt_book_name: promptBook.name,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      console.error('Error activating prompt book:', error);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error activating prompt book: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  // List all prompt books
+  private async listPromptBooks(): Promise<any> {
+    try {
+      const promptBooks = this.config.promptBooks.map(pb => ({
+        id: pb.id,
+        name: pb.name,
+        is_active: this.config.activePromptBookId === pb.id,
+      }));
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              prompt_books: promptBooks,
+              count: promptBooks.length,
+              active_prompt_book_id: this.config.activePromptBookId,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      console.error('Error listing prompt books:', error);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error listing prompt books: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  // Rename a prompt book
+  private async renamePromptBook(args: any): Promise<any> {
+    if (!args?.id) {
+      throw new McpError(ErrorCode.InvalidParams, 'Prompt book ID is required');
+    }
+    if (!args?.name) {
+      throw new McpError(ErrorCode.InvalidParams, 'New name is required');
+    }
+
+    try {
+      const promptBookId = args.id;
+      const newName = args.name;
+      
+      // Find the prompt book by ID
+      const promptBookIndex = this.config.promptBooks.findIndex(pb => pb.id === promptBookId);
+      
+      if (promptBookIndex === -1) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error: Prompt book with ID "${promptBookId}" not found.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Store the old name for the response message
+      const oldName = this.config.promptBooks[promptBookIndex].name;
+      
+      // Update the name
+      this.config.promptBooks[promptBookIndex].name = newName;
+      
+      // Save the updated configuration
+      this.saveConfig();
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              message: 'Prompt book renamed successfully',
+              prompt_book_id: promptBookId,
+              old_name: oldName,
+              new_name: newName,
+              is_active: this.config.activePromptBookId === promptBookId,
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      console.error('Error renaming prompt book:', error);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error renaming prompt book: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
   // Helper method to fetch all pages of results
   private async fetchAllResults(queryParams: any): Promise<any[]> {
+    if (!this.notion) {
+      throw new Error('Notion client not initialized');
+    }
+
     let allResults: any[] = [];
     let hasMore = true;
     let cursor: string | undefined = undefined;
@@ -335,8 +806,20 @@ class PromptBookServer {
   // List all prompts
   private async listPrompts(args: any): Promise<any> {
     try {
+      if (!this.activePromptBook || !this.notion) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: NO_ACTIVE_PROMPT_BOOK,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Check if database ID exists and is valid
-      if (!this.databaseId) {
+      if (!this.activePromptBook.notion_database_id) {
         return {
           content: [
             {
@@ -352,7 +835,7 @@ class PromptBookServer {
       const showAllFields = args?.show_all_fields === true;
 
       const allResults = await this.fetchAllResults({
-        database_id: this.databaseId,
+        database_id: this.activePromptBook.notion_database_id,
       });
 
       const prompts = await this.processPromptResults(allResults, showAllFields);
@@ -407,8 +890,20 @@ class PromptBookServer {
     const query = args.query;
 
     try {
+      if (!this.activePromptBook || !this.notion) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: NO_ACTIVE_PROMPT_BOOK,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Check if database ID exists and is valid
-      if (!this.databaseId) {
+      if (!this.activePromptBook.notion_database_id) {
         return {
           content: [
             {
@@ -421,7 +916,7 @@ class PromptBookServer {
       }
 
       const allResults = await this.fetchAllResults({
-        database_id: this.databaseId,
+        database_id: this.activePromptBook.notion_database_id,
         filter: {
           property: 'Name',
           title: {
@@ -483,8 +978,20 @@ class PromptBookServer {
     const tag = args.tag;
 
     try {
+      if (!this.activePromptBook || !this.notion) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: NO_ACTIVE_PROMPT_BOOK,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Check if database ID exists and is valid
-      if (!this.databaseId) {
+      if (!this.activePromptBook.notion_database_id) {
         return {
           content: [
             {
@@ -497,7 +1004,7 @@ class PromptBookServer {
       }
 
       const allResults = await this.fetchAllResults({
-        database_id: this.databaseId,
+        database_id: this.activePromptBook.notion_database_id,
         filter: {
           property: 'Tags',
           multi_select: {
@@ -559,8 +1066,20 @@ class PromptBookServer {
     const type = args.type;
 
     try {
+      if (!this.activePromptBook || !this.notion) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: NO_ACTIVE_PROMPT_BOOK,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Check if database ID exists and is valid
-      if (!this.databaseId) {
+      if (!this.activePromptBook.notion_database_id) {
         return {
           content: [
             {
@@ -573,7 +1092,7 @@ class PromptBookServer {
       }
 
       const allResults = await this.fetchAllResults({
-        database_id: this.databaseId,
+        database_id: this.activePromptBook.notion_database_id,
         filter: {
           property: 'Type',
           select: {
@@ -628,6 +1147,10 @@ class PromptBookServer {
 
   // Helper method to fetch all blocks for a page
   private async fetchAllBlocks(blockId: string): Promise<any[]> {
+    if (!this.notion) {
+      throw new Error('Notion client not initialized');
+    }
+
     let allBlocks: any[] = [];
     let hasMore = true;
     let cursor: string | undefined = undefined;
@@ -661,8 +1184,20 @@ class PromptBookServer {
     const promptId = args.prompt_id;
 
     try {
+      if (!this.activePromptBook || !this.notion) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: NO_ACTIVE_PROMPT_BOOK,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Check if database ID exists and is valid
-      if (!this.databaseId) {
+      if (!this.activePromptBook.notion_database_id) {
         return {
           content: [
             {
@@ -906,8 +1441,20 @@ class PromptBookServer {
   // List all unique types in the database
   private async listAllTypes(args: any): Promise<any> {
     try {
+      if (!this.activePromptBook || !this.notion) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: NO_ACTIVE_PROMPT_BOOK,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Check if database ID exists and is valid
-      if (!this.databaseId) {
+      if (!this.activePromptBook.notion_database_id) {
         return {
           content: [
             {
@@ -921,7 +1468,7 @@ class PromptBookServer {
 
       // Retrieve the database schema to get all possible type options
       const databaseResponse = await this.notion.databases.retrieve({
-        database_id: this.databaseId,
+        database_id: this.activePromptBook.notion_database_id,
       });
 
       // Extract all possible type options from the database schema
@@ -969,27 +1516,54 @@ class PromptBookServer {
       };
     }
   }
+  // Helper method to format page ID with hyphens (8-4-4-4-12)
+  private formatPageId(id: string): string {
+    // Remove hyphens if they exist
+    const cleanId = id.replace(/-/g, '');
+    
+    // Format with hyphens (8-4-4-4-12)
+    if (cleanId.length === 32) {
+      return `${cleanId.slice(0, 8)}-${cleanId.slice(8, 12)}-${cleanId.slice(12, 16)}-${cleanId.slice(16, 20)}-${cleanId.slice(20)}`;
+    }
+    
+    return id; // Return original if not 32 chars
+  }
+
 
   // Create a new prompt database
   private async createPromptDatabase(args: any): Promise<any> {
     if (!args?.page_id) {
       throw new McpError(ErrorCode.InvalidParams, 'Page ID is required');
     }
+    if (!args?.name) {
+      throw new McpError(ErrorCode.InvalidParams, 'Name is required');
+    }
+    if (!args?.notion_token) {
+      throw new McpError(ErrorCode.InvalidParams, 'Notion token is required');
+    }
 
     const pageId = args.page_id;
+    const name = args.name;
+    const notionToken = args.notion_token;
+    const activate = args.activate === true; // Default to false if not provided
 
     try {
+      // Create a temporary Notion client with the provided token
+      const tempNotion = new Client({
+        auth: notionToken,
+      });
+
       // Create a new database with the same schema as the analyzed database
-      const response = await this.notion.databases.create({
+      const response = await tempNotion.databases.create({
         parent: {
           type: 'page_id',
-          page_id: pageId,
+          page_id: this.formatPageId(pageId),
         },
         title: [
           {
             type: 'text',
             text: {
-              content: 'GAI Prompt Book',
+              content: name, // Use the provided name instead of hardcoded value
             },
           },
         ],
@@ -1012,6 +1586,62 @@ class PromptBookServer {
                   name: 'Conversation',
                   color: 'brown',
                 },
+                {
+                  name: 'Task',
+                  color: 'blue',
+                },
+                {
+                  name: 'Prompting',
+                  color: 'purple',
+                },
+                {
+                  name: 'Find Tool',
+                  color: 'yellow',
+                },
+                {
+                  name: 'Product Management',
+                  color: 'orange',
+                },
+                {
+                  name: 'Technical',
+                  color: 'gray',
+                },
+                {
+                  name: 'Evaluation',
+                  color: 'red',
+                },
+                {
+                  name: 'Consultant',
+                  color: 'green',
+                },
+                {
+                  name: 'Project Setup',
+                  color: 'blue',
+                },
+                {
+                  name: 'Quiz',
+                  color: 'purple',
+                },
+                {
+                  name: 'Documentation',
+                  color: 'yellow',
+                },
+                {
+                  name: 'Writing',
+                  color: 'orange',
+                },
+                {
+                  name: 'DevOps',
+                  color: 'gray',
+                },
+                {
+                  name: 'Debugging',
+                  color: 'red',
+                },
+                {
+                  name: 'Research',
+                  color: 'pink',
+                },
               ],
             },
           },
@@ -1023,16 +1653,36 @@ class PromptBookServer {
         },
       });
 
-      // Update the database ID in memory
-      this.databaseId = response.id;
+      // Create a new prompt book with the newly created database ID
+      const newPromptBook: PromptBook = {
+        id: uuidv4(),
+        name: name,
+        notion_token: notionToken,
+        notion_database_id: response.id,
+      };
+
+      // Add to config
+      this.config.promptBooks.push(newPromptBook);
+      
+      // Set it as active only if activate is true
+      if (activate) {
+        this.config.activePromptBookId = newPromptBook.id;
+        this.setActivePromptBook(newPromptBook.id);
+      }
+      
+      // Save config
+      this.saveConfig();
 
       return {
         content: [
           {
             type: 'text',
             text: JSON.stringify({
-              message: 'Prompt database created successfully',
+              message: 'Prompt database created and added to configuration successfully',
               database_id: response.id,
+              prompt_book_id: newPromptBook.id,
+              prompt_book_name: newPromptBook.name,
+              is_active: activate,
             }, null, 2),
           },
         ],
@@ -1054,8 +1704,20 @@ class PromptBookServer {
   // List all unique tags in the database
   private async listAllTags(args: any): Promise<any> {
     try {
+      if (!this.activePromptBook || !this.notion) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: NO_ACTIVE_PROMPT_BOOK,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Check if database ID exists and is valid
-      if (!this.databaseId) {
+      if (!this.activePromptBook.notion_database_id) {
         return {
           content: [
             {
@@ -1069,7 +1731,7 @@ class PromptBookServer {
 
       // Retrieve the database schema to get all possible tag options
       const databaseResponse = await this.notion.databases.retrieve({
-        database_id: this.databaseId,
+        database_id: this.activePromptBook.notion_database_id,
       });
 
       // Extract all possible tag options from the database schema
@@ -1140,8 +1802,20 @@ class PromptBookServer {
     console.error(`Adding prompt with content length: ${detailedPrompt.length}`);
 
     try {
+      if (!this.activePromptBook || !this.notion) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: NO_ACTIVE_PROMPT_BOOK,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Check if database ID exists and is valid
-      if (!this.databaseId) {
+      if (!this.activePromptBook.notion_database_id) {
         return {
           content: [
             {
@@ -1153,31 +1827,75 @@ class PromptBookServer {
         };
       }
 
-      // Verify that the type exists in the database
+      // Get the database schema and check type options
       const databaseResponse = await this.notion.databases.retrieve({
-        database_id: this.databaseId,
+        database_id: this.activePromptBook.notion_database_id,
       });
 
       const typeProperty = databaseResponse.properties?.Type as any;
       const typeOptions = typeProperty?.select?.options || [];
       const validTypes = typeOptions.map((option: { name: string }) => option.name);
+      const allowNewType = args.allow_new_type === true;
 
+      // Check if type exists and handle based on allow_new_type parameter
       if (!validTypes.includes(type)) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `Error: Invalid type "${type}". Valid types are: ${validTypes.join(', ')}. Use the list_all_types tool to see available types.`,
-            },
-          ],
-          isError: true,
-        };
+        if (!allowNewType) {
+          // If allow_new_type is false (default), return an error
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Error: Invalid type "${type}". Valid types are: ${validTypes.join(', ')}. Use the list_all_types tool to see available types or set allow_new_type to true.`,
+              },
+            ],
+            isError: true,
+          };
+        } else {
+          // If allow_new_type is true, add the new type to the database schema
+          try {
+            console.error(`Adding new type "${type}" to database schema`);
+            
+            // Create a new options array with the new type added
+            const newOptions = [
+              ...typeOptions,
+              {
+                name: type,
+                color: 'default' // Default color for new types
+              }
+            ];
+            
+            // Update the database schema with the new type option
+            await this.notion.databases.update({
+              database_id: this.activePromptBook.notion_database_id,
+              properties: {
+                Type: {
+                  select: {
+                    options: newOptions
+                  }
+                }
+              }
+            });
+            
+            console.error(`Successfully added new type "${type}" to database schema`);
+          } catch (error) {
+            console.error(`Error adding new type "${type}" to database schema:`, error);
+            return {
+              content: [
+                {
+                  type: 'text',
+                  text: `Error adding new type "${type}" to database schema: ${error instanceof Error ? error.message : String(error)}`,
+                },
+              ],
+              isError: true,
+            };
+          }
+        }
       }
 
       // Create the new page in the database
       const response = await this.notion.pages.create({
         parent: {
-          database_id: this.databaseId,
+          database_id: this.activePromptBook.notion_database_id,
         },
         properties: {
           Name: {
@@ -1270,8 +1988,20 @@ class PromptBookServer {
     }
 
     try {
+      if (!this.activePromptBook || !this.notion) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: NO_ACTIVE_PROMPT_BOOK,
+            },
+          ],
+          isError: true,
+        };
+      }
+
       // Check if database ID exists and is valid
-      if (!this.databaseId) {
+      if (!this.activePromptBook.notion_database_id) {
         return {
           content: [
             {
@@ -1303,7 +2033,7 @@ class PromptBookServer {
       // If type is provided, verify it's valid
       if (args.type !== undefined) {
         const databaseResponse = await this.notion.databases.retrieve({
-          database_id: this.databaseId,
+          database_id: this.activePromptBook.notion_database_id,
         });
 
         const typeProperty = databaseResponse.properties?.Type as any;

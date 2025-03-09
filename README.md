@@ -4,19 +4,39 @@ An MCP server that connects to a Notion database containing GAI prompts and prov
 
 ## Features
 
+### Configuration Management
+- Support for multiple prompt books with only one active at a time
+- Add, remove, and activate prompt books
+- Configuration stored in `~/.mcp_config/prompt_book.json`
+
+### Prompt Management
 - List all prompts in the database with pagination
 - Search prompts by title
 - Get prompts by tag
 - Get prompts by type
 - Read the content of a specific prompt
+- Add and update prompts
 
 ## Configuration
 
-The server requires the following environment variables:
+The server reads configuration from `~/.mcp_config/prompt_book.json`. This file contains a list of prompt books, with only one active at a time.
 
-1. `NOTION_TOKEN`: Notion API token with access to the prompts database
-2. `NOTION_DATABASE_ID`: ID of the Notion database containing the prompts
+Each prompt book has the following structure:
+```json
+{
+  "promptBooks": [
+    {
+      "id": "uuid-string",
+      "name": "My Prompt Book",
+      "notion_token": "your-notion-api-token",
+      "notion_database_id": "your-notion-database-id"
+    }
+  ],
+  "activePromptBookId": "uuid-string"
+}
+```
 
+The MCP server configuration should be:
 ```json
 {
   "mcpServers": {
@@ -25,12 +45,10 @@ The server requires the following environment variables:
       "args": [
         "/path/to/prompt-book-server/build/index.js"
       ],
-      "env": {
-        "NOTION_TOKEN": "your-notion-api-token",
-        "NOTION_DATABASE_ID": "your-notion-database-id"
-      },
       "disabled": false,
       "alwaysAllow": [
+        "list_prompt_books",
+        "rename_prompt_book",
         "list_prompts",
         "search_prompts_by_title",
         "get_prompts_by_tag",
@@ -43,6 +61,79 @@ The server requires the following environment variables:
 ```
 
 ## Available Tools
+
+### Configuration Management Tools
+
+### create_prompt_book_config
+
+Adds a new prompt book configuration.
+
+**Parameters:**
+- `name` (required): Name of the prompt book
+- `notion_token` (required): Notion API token with access to the prompts database
+- `notion_database_id` (required): ID of the Notion database containing the prompts
+
+**Example:**
+```json
+{
+  "name": "My Prompt Book",
+  "notion_token": "secret_abcdefghijklmnopqrstuvwxyz",
+  "notion_database_id": "1a748be2-b632-8098-8d9b-c5f89918431d"
+}
+```
+
+### remove_prompt_book_config
+
+Removes a prompt book configuration.
+
+**Parameters:**
+- `id` (required): ID of the prompt book to remove
+
+**Example:**
+```json
+{
+  "id": "1a748be2-b632-8098-8d9b-c5f89918431d"
+}
+```
+
+### activate_prompt_book
+
+Sets a prompt book as active.
+
+**Parameters:**
+- `id` (required): ID of the prompt book to activate
+
+**Example:**
+```json
+{
+  "id": "1a748be2-b632-8098-8d9b-c5f89918431d"
+}
+```
+
+### rename_prompt_book
+
+Renames a prompt book configuration.
+
+**Parameters:**
+- `id` (required): ID of the prompt book to rename
+- `name` (required): New name for the prompt book
+
+**Example:**
+```json
+{
+  "id": "1a748be2-b632-8098-8d9b-c5f89918431d",
+  "name": "Updated Prompt Book Name"
+}
+```
+
+### list_prompt_books
+
+Lists all configured prompt books.
+
+**Parameters:**
+- None
+
+### Prompt Management Tools
 
 ### list_prompts
 
@@ -118,6 +209,28 @@ Reads the content of a specific prompt.
 }
 ```
 
+### add_prompt
+
+Adds a new prompt to the database.
+
+**Parameters:**
+- `name` (required): Name of the prompt
+- `detailed_prompt` (required): The detailed content of the prompt
+- `type` (required): Type of the prompt. Use the list_all_types tool to check existing types to use.
+- `tags` (optional): List of tags for the prompt
+- `allow_new_type` (optional): If true, allows creating a new type if it doesn't exist in the database. Default is false.
+
+**Example:**
+```json
+{
+  "name": "My New Prompt",
+  "detailed_prompt": "This is the content of the new prompt.",
+  "type": "Coding",
+  "tags": ["JavaScript", "React"],
+  "allow_new_type": false
+}
+```
+
 ### update_prompt
 
 Updates an existing prompt in the database.
@@ -155,7 +268,25 @@ Updates an existing prompt in the database.
 3. Build the project: `npm run build`
 4. Run the server: `npm start`
 
-### Environment Variables
+### Configuration Setup
 
-- `NOTION_TOKEN`: Notion API token with access to the prompts database
-- `NOTION_DATABASE_ID`: ID of the Notion database containing the prompts
+After installing and building the project, you need to create a configuration file:
+
+1. Create the directory: `mkdir -p ~/.mcp_config`
+2. Create a configuration file: `touch ~/.mcp_config/prompt_book.json`
+3. Add your prompt book configuration to the file:
+```json
+{
+  "promptBooks": [
+    {
+      "id": "uuid-string",
+      "name": "My Prompt Book",
+      "notion_token": "your-notion-api-token",
+      "notion_database_id": "your-notion-database-id"
+    }
+  ],
+  "activePromptBookId": "uuid-string"
+}
+```
+
+You can also use the `create_prompt_book_config` tool to add prompt books to the configuration.

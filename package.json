@@ -8,13 +8,19 @@
     "start": "node build/index.js",
     "dev": "tsc -w"
   },
-  "keywords": ["mcp", "notion", "prompts"],
+  "keywords": [
+    "mcp",
+    "notion",
+    "prompts"
+  ],
   "author": "",
   "license": "ISC",
   "description": "MCP server for Notion prompts database",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.0",
-    "@notionhq/client": "^2.2.16"
+    "@notionhq/client": "^2.2.16",
+    "@types/uuid": "^10.0.0",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.5",
