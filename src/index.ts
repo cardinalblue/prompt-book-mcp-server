@@ -386,11 +386,6 @@ class PromptBookServer {
                   type: 'string'
                 }
               },
-              allow_new_type: {
-                type: 'boolean',
-                description: 'If true, allows creating a new type if it doesn\'t exist in the database. Default is false.',
-                default: false
-              },
             },
             required: ['name', 'detailed_prompt', 'type'],
           },
@@ -2113,23 +2108,10 @@ class PromptBookServer {
       const typeProperty = databaseResponse.properties?.Type as any;
       const typeOptions = typeProperty?.select?.options || [];
       const validTypes = typeOptions.map((option: { name: string }) => option.name);
-      const allowNewType = args.allow_new_type === true;
 
-      // Check if type exists and handle based on allow_new_type parameter
+      // Check if type exists and add it to the database schema if it doesn't
       if (!validTypes.includes(type)) {
-        if (!allowNewType) {
-          // If allow_new_type is false (default), return an error
-          return {
-            content: [
-              {
-                type: 'text',
-                text: `Error: Invalid type "${type}". Valid types are: ${validTypes.join(', ')}. Use the list_all_types tool to see available types or set allow_new_type to true.`,
-              },
-            ],
-            isError: true,
-          };
-        } else {
-          // If allow_new_type is true, add the new type to the database schema
+          // Always add the new type to the database schema, regardless of allow_new_type parameter
           try {
             console.error(`Adding new type "${type}" to database schema`);
             
@@ -2167,7 +2149,6 @@ class PromptBookServer {
               isError: true,
             };
           }
-        }
       }
 
       // Create the new page in the database
