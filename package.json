@@ -1,9 +1,13 @@
 {
-  "name": "prompt-book-server",
+  "name": "prompt-book-mcp-server",
   "version": "1.0.0",
   "main": "build/index.js",
   "type": "module",
+  "bin": {
+    "prompt-book-mcp-server": "./build/index.js"
+  },
   "scripts": {
+    "prepare": "npm run build",
     "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
     "start": "node build/index.js",
     "dev": "tsc -w"
