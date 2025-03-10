@@ -174,6 +174,28 @@ class PromptBookServer {
           },
         },
         {
+          name: 'copy_prompt',
+          description: 'Copy a prompt from one book to another',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              prompt_id: {
+                type: 'string',
+                description: 'ID of the prompt to copy',
+              },
+              source_book_id: {
+                type: 'string',
+                description: 'ID of the source prompt book (optional if using the active book as source)',
+              },
+              destination_book_id: {
+                type: 'string',
+                description: 'ID of the destination prompt book to copy the prompt to',
+              },
+            },
+            required: ['prompt_id', 'destination_book_id'],
+          },
+        },
+        {
           name: 'remove_prompt_book_config',
           description: 'Remove a prompt book configuration',
           inputSchema: {
@@ -423,6 +445,8 @@ class PromptBookServer {
           return await this.listPromptBooks();
         } else if (request.params.name === 'rename_prompt_book') {
           return await this.renamePromptBook(request.params.arguments);
+        } else if (request.params.name === 'copy_prompt') {
+          return await this.copyPrompt(request.params.arguments);
         } else if (request.params.name === 'create_prompt_database') {
           // Handle create_prompt_database separately as it now creates a new prompt book
           return await this.createPromptDatabase(request.params.arguments);
@@ -1699,6 +1723,260 @@ class PromptBookServer {
         isError: true,
       };
     }
+  }
+
+  // Copy a prompt from one book to another
+  private async copyPrompt(args: any): Promise<any> {
+    // Validate required parameters
+    if (!args?.prompt_id) {
+      throw new McpError(ErrorCode.InvalidParams, 'Prompt ID is required');
+    }
+    if (!args?.destination_book_id) {
+      throw new McpError(ErrorCode.InvalidParams, 'Destination prompt book ID is required');
+    }
+
+    const promptId = args.prompt_id;
+    const destinationBookId = args.destination_book_id;
+    const sourceBookId = args.source_book_id; // Optional, if not provided, use active book
+
+    try {
+      // If source_book_id is provided, use it; otherwise use the active book
+      let sourceBook: PromptBook | null = null;
+      let sourceNotion: Client | null = null;
+
+      if (sourceBookId) {
+        // Find the source book by ID
+        sourceBook = this.config.promptBooks.find(pb => pb.id === sourceBookId) || null;
+        if (!sourceBook) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: `Error: Source prompt book with ID "${sourceBookId}" not found.`,
+              },
+            ],
+            isError: true,
+          };
+        }
+        
+        // Create a Notion client for the source book
+        sourceNotion = new Client({
+          auth: sourceBook.notion_token,
+        });
+      } else {
+        // Use the active book as source
+        if (!this.activePromptBook || !this.notion) {
+          return {
+            content: [
+              {
+                type: 'text',
+                text: NO_ACTIVE_PROMPT_BOOK,
+              },
+            ],
+            isError: true,
+          };
+        }
+        sourceBook = this.activePromptBook;
+        sourceNotion = this.notion;
+      }
+
+      // Find the destination book by ID
+      const destinationBook = this.config.promptBooks.find(pb => pb.id === destinationBookId);
+      if (!destinationBook) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error: Destination prompt book with ID "${destinationBookId}" not found.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+
+      // Create a Notion client for the destination book
+      const destinationNotion = new Client({
+        auth: destinationBook.notion_token,
+      });
+
+      // 1. Retrieve the source prompt
+      const pageResponse = await sourceNotion.pages.retrieve({
+        page_id: promptId,
+      });
+
+      // Extract prompt metadata
+      const promptInfo = this.extractPageInfo(pageResponse, true);
+      
+      // 2. Get the prompt content (blocks)
+      const allBlocks = await this.fetchAllBlocksWithClient(promptId, sourceNotion);
+      
+      // 3. Extract the content as plain text
+      const content = await this.extractContentFromBlocksWithClient(allBlocks, sourceNotion);
+
+      // 4. Create a new prompt in the destination book
+      const response = await destinationNotion.pages.create({
+        parent: {
+          database_id: destinationBook.notion_database_id,
+        },
+        properties: {
+          Name: {
+            title: [
+              {
+                text: {
+                  content: promptInfo.title,
+                },
+              },
+            ],
+          },
+          Type: {
+            select: {
+              name: promptInfo.type || 'Coding', // Default to 'Coding' if no type is specified
+            },
+          },
+          Tags: {
+            multi_select: (promptInfo.tags || []).map((tag: string) => ({ name: tag })),
+          },
+        },
+        children: this.createParagraphBlocksFromText(content),
+      });
+
+      // Extract the ID of the newly created prompt
+      const newPromptId = response.id;
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              message: 'Prompt copied successfully',
+              source: {
+                prompt_id: promptId,
+                book_id: sourceBook.id,
+                book_name: sourceBook.name,
+              },
+              destination: {
+                prompt_id: newPromptId,
+                book_id: destinationBook.id,
+                book_name: destinationBook.name,
+              }
+            }, null, 2),
+          },
+        ],
+      };
+    } catch (error) {
+      console.error('Error copying prompt:', error);
+      
+      // Check if the error is related to an invalid database or prompt
+      if (error instanceof Error &&
+          (error.message.includes("Invalid database") ||
+           error.message.includes("Could not find database") ||
+           error.message.includes("Could not find page"))) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `Error: The prompt or database could not be found. Please check that the prompt ID and book IDs are correct.`,
+            },
+          ],
+          isError: true,
+        };
+      }
+      
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Error copying prompt: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  }
+
+  // Helper method to fetch all blocks for a page with a specific Notion client
+  private async fetchAllBlocksWithClient(blockId: string, notionClient: Client): Promise<any[]> {
+    let allBlocks: any[] = [];
+    let hasMore = true;
+    let cursor: string | undefined = undefined;
+
+    while (hasMore) {
+      const response = await notionClient.blocks.children.list({
+        block_id: blockId,
+        page_size: 100,
+        start_cursor: cursor,
+      });
+
+      allBlocks = [...allBlocks, ...response.results];
+      hasMore = response.has_more;
+      cursor = response.next_cursor || undefined;
+
+      // Safety check to prevent infinite loops
+      if (!cursor && hasMore) {
+        break;
+      }
+    }
+
+    return allBlocks;
+  }
+
+  // Helper method to extract content from blocks with a specific Notion client
+  private async extractContentFromBlocksWithClient(blocks: any[], notionClient: Client): Promise<string> {
+    let content = '';
+
+    for (const block of blocks) {
+      if (block.type === 'paragraph') {
+        const text = block.paragraph.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        content += text + '\n\n';
+      } else if (block.type === 'heading_1') {
+        const text = block.heading_1.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        content += '# ' + text + '\n\n';
+      } else if (block.type === 'heading_2') {
+        const text = block.heading_2.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        content += '## ' + text + '\n\n';
+      } else if (block.type === 'heading_3') {
+        const text = block.heading_3.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        content += '### ' + text + '\n\n';
+      } else if (block.type === 'bulleted_list_item') {
+        const text = block.bulleted_list_item.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        content += '• ' + text + '\n';
+      } else if (block.type === 'numbered_list_item') {
+        const text = block.numbered_list_item.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        content += '1. ' + text + '\n';
+      } else if (block.type === 'code') {
+        const text = block.code.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        const language = block.code.language || '';
+        content += '```' + language + '\n' + text + '\n```\n\n';
+      } else if (block.type === 'quote') {
+        const text = block.quote.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        content += '> ' + text + '\n\n';
+      } else if (block.type === 'divider') {
+        content += '---\n\n';
+      } else if (block.has_children) {
+        // Recursively get all content from child blocks
+        const allChildBlocks = await this.fetchAllBlocksWithClient(block.id, notionClient);
+        const childContent = await this.extractContentFromBlocksWithClient(allChildBlocks, notionClient);
+        content += childContent;
+      }
+    }
+
+    return content;
   }
 
   // List all unique tags in the database
