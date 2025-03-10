@@ -524,6 +524,9 @@ class PromptBookServer {
     }
 
     try {
+      // Always reload the configuration from file before adding a new prompt book
+      this.loadConfig();
+      
       // Create new prompt book
       const newPromptBook: PromptBook = {
         id: uuidv4(),
@@ -578,6 +581,9 @@ class PromptBookServer {
     }
 
     try {
+      // Always reload the configuration from file before removing a prompt book
+      this.loadConfig();
+      
       const promptBookId = args.id;
       const promptBookIndex = this.config.promptBooks.findIndex(pb => pb.id === promptBookId);
       
@@ -638,6 +644,9 @@ class PromptBookServer {
     }
 
     try {
+      // Always reload the configuration from file before activating a prompt book
+      this.loadConfig();
+      
       const promptBookId = args.id;
       const promptBook = this.config.promptBooks.find(pb => pb.id === promptBookId);
       
@@ -695,6 +704,9 @@ class PromptBookServer {
   // List all prompt books
   private async listPromptBooks(): Promise<any> {
     try {
+      // Always reload the configuration from file to get the latest prompt books
+      this.loadConfig();
+      
       const promptBooks = this.config.promptBooks.map(pb => ({
         id: pb.id,
         name: pb.name,
@@ -737,6 +749,9 @@ class PromptBookServer {
     }
 
     try {
+      // Always reload the configuration from file before renaming a prompt book
+      this.loadConfig();
+      
       const promptBookId = args.id;
       const newName = args.name;
       
@@ -1567,6 +1582,9 @@ class PromptBookServer {
     const activate = args.activate === true; // Default to false if not provided
 
     try {
+      // Always reload the configuration from file before creating a new prompt database
+      this.loadConfig();
+      
       // Create a temporary Notion client with the provided token
       const tempNotion = new Client({
         auth: notionToken,
@@ -1735,6 +1753,9 @@ class PromptBookServer {
     const sourceBookId = args.source_book_id; // Optional, if not provided, use active book
 
     try {
+      // Always reload the configuration from file before copying a prompt
+      this.loadConfig();
+      
       // If source_book_id is provided, use it; otherwise use the active book
       let sourceBook: PromptBook | null = null;
       let sourceNotion: Client | null = null;
