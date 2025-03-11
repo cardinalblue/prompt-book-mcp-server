@@ -1,6 +1,6 @@
 {
   "name": "@piccollage/prompt-book-mcp-server",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "main": "build/index.js",
   "type": "module",
   "bin": {

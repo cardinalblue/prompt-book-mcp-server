@@ -67,6 +67,7 @@ Add the following configuration:
     "prompt-book-server": {
       "command": "npx",
       "args": [
+        "-y",
         "@piccollage/prompt-book-mcp-server"
       ],
       "disabled": false,
@@ -144,7 +145,7 @@ Please create a very detailed prompt to instruct LLM agents to convert Android X
 
 ## How to add a new prompt book?
 
-You have three main options for adding a new prompt book:
+You have two main options for adding a new prompt book:
 
 ### Option 1: Connect to an Existing Notion Database
 
@@ -179,27 +180,6 @@ Create a new prompt database with these details:
 ```
 
 This will create a new database with the proper schema (Name, Type, Tags) and add it to your configuration.
-
-### Option 3: Manual Configuration
-
-You can also manually edit the configuration file:
-
-1. Edit `~/.mcp_config/prompt_book.json`
-2. Add a new entry to the `promptBooks` array:
-
-```json
-{
-  "promptBooks": [
-    {
-      "id": "generate-a-uuid-here",
-      "name": "My Prompt Book",
-      "notion_token": "your-notion-api-token",
-      "notion_database_id": "your-notion-database-id"
-    }
-  ],
-  "activePromptBookId": "generate-a-uuid-here"
-}
-```
 
 ### Notion Database Requirements
 
