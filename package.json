@@ -10,7 +10,9 @@
     "prepare": "npm run build",
     "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
     "start": "node build/index.js",
-    "dev": "tsc -w"
+    "dev": "tsc -w",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
     "mcp",
@@ -19,6 +21,14 @@
   ],
   "author": "",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cardinalblue/prompt-book-mcp-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cardinalblue/prompt-book-mcp-server/issues"
+  },
+  "homepage": "https://github.com/cardinalblue/prompt-book-mcp-server#readme",
   "description": "MCP server for Notion prompts database",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.6.0",
@@ -29,5 +39,8 @@
   "devDependencies": {
     "@types/node": "^22.13.5",
     "typescript": "^5.7.3"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }
