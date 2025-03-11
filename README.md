@@ -42,22 +42,11 @@ The server acts as a bridge between your AI tools and your Notion-based prompt c
 | `add_prompt` | Adds a new prompt to the database |
 | `update_prompt` | Updates an existing prompt in the database |
 
-## How to configure it in my coding tool?
+## How to configure it in my coding tools (or non coding tools)?
 
-### 1. Install the MCP Server
+### Add to MCP Configuration
 
-First, ensure you have the prompt-book-mcp-server installed and built:
-
-```bash
-git clone https://github.com/your-org/prompt-book-mcp-server.git
-cd prompt-book-mcp-server
-npm install
-npm run build
-```
-
-### 2. Add to MCP Configuration
-
-Add the server to your MCP configuration file. The location depends on your coding tool:
+Add the server to your MCP configuration file. The location depends on your MCP client:
 
 #### For VSCode with Roo Cline:
 Edit `~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
@@ -71,36 +60,16 @@ Add the following configuration:
 {
   "mcpServers": {
     "prompt-book-server": {
-      "command": "node",
+      "command": "npx",
       "args": [
-        "/path/to/prompt-book-server/build/index.js"
+        "@piccollage/prompt-book-mcp-server"
       ],
       "disabled": false,
-      "alwaysAllow": [
-        "list_prompt_books",
-        "rename_prompt_book",
-        "list_prompts",
-        "search_prompts_by_title",
-        "get_prompts_by_tag",
-        "get_prompts_by_type",
-        "read_prompt",
-        "list_all_types",
-        "list_all_tags"
-      ]
+      "alwaysAllow": []
     }
   }
 }
 ```
-
-### 3. Create Configuration Directory
-
-The server stores its configuration in `~/.mcp_config/prompt_book.json`. Create this directory if it doesn't exist:
-
-```bash
-mkdir -p ~/.mcp_config
-```
-
-The configuration file will be created automatically when you add your first prompt book.
 
 ## Example prompts to work with it
 
