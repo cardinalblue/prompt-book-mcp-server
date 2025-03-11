@@ -48,11 +48,16 @@ The server acts as a bridge between your AI tools and your Notion-based prompt c
 
 Add the server to your MCP configuration file. The location depends on your MCP client:
 
-#### For VSCode with Roo Cline:
-Edit `~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
+### Path to the MCP config
 
-#### For Claude Desktop:
-Edit `~/Library/Application Support/Claude/claude_desktop_config.json`
+1. **cline**:
+`~/Library/Application Support/Code/User/globalStorage/saoudrizwan.claude-dev/settings/cline_mcp_settings.json`
+2. **roo_code**:
+`~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
+3. **windsurf**:
+`~/.codeium/windsurf/mcp_config.json`
+4. **claude**:
+`~/Library/Application Support/Claude/claude_desktop_config.json`
 
 Add the following configuration:
 
@@ -75,14 +80,14 @@ Add the following configuration:
 
 Here are some example prompts you can use to interact with the Prompt Book Server:
 
-### Listing and Searching Prompts
+### **Listing and Searching Prompts**
 
 ```
 List all my prompt books.
 ```
 
 ```
-Show me all prompts in my active prompt book.
+Show me all prompts in the prompt book.
 ```
 
 ```
@@ -94,45 +99,47 @@ Show me all prompts with the tag "PicCollage".
 ```
 
 ```
-List all prompts of type "Coding".
+List all prompts of type "Coding"
 ```
 
 ```
 What types of prompts are available in my prompt book?
 ```
 
-### Reading Prompts
+### **Reading Prompts**
 
 ```
-Show me the content of the prompt with ID "1a748be2-b632-8098-8d9b-c5f89918431d".
+Get the prompt about idea evaluation from the prompt book.
+Follow the instructions in it and then verify the following idea for me:
+describe your idea
 ```
 
-```
-Get the full text of the "GPUImage Filter to KraftShader Porting" prompt.
-```
-
-### Managing Prompt Books
+### **Managing Prompt Books**
 
 ```
-Activate my "Engineering Shared Prompt Book".
-```
-
-```
-Copy the "GPUImage Filter to KraftShader Porting" prompt from my Private book to the Engineering book.
+Activate the engineering prompt book.
 ```
 
 ```
-Create a new prompt book called "Team Prompts" connected to my Notion database.
+Copy the GPUImage porting prompt from my private book to the engineering book.
 ```
 
-### Adding and Updating Prompts
+### **Adding and Updating Prompts**
 
 ```
 Add a new prompt titled "React Component Generator" with type "Coding" and tags ["React", "Frontend"].
+
+The prompt should include ....
+......
+.....
 ```
 
 ```
 Update the "React Component Generator" prompt to include TypeScript support.
+```
+
+```bash
+Please create a very detailed prompt to instruct LLM agents to convert Android XML UI implementations into Compose UI elements or screens. Put that prompt to the prompt book.
 ```
 
 ## How to add a new prompt book?
