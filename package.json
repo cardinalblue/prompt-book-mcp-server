@@ -1,6 +1,6 @@
 {
   "name": "@piccollage/prompt-book-mcp-server",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "main": "build/index.js",
   "type": "module",
   "bin": {
@@ -20,7 +20,7 @@
     "prompts"
   ],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/cardinalblue/prompt-book-mcp-server.git"
