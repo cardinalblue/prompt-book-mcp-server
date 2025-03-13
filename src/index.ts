@@ -1340,62 +1340,260 @@ class PromptBookServer {
   }
 
   // Helper method to extract content from blocks
-  private async extractContentFromBlocks(blocks: any[]): Promise<string> {
+  private async extractContentFromBlocks(blocks: any[], listNumbering: { [key: string]: number } = {}, indentLevel: number = 0): Promise<string> {
     let content = '';
+    let currentListType: string | null = null;
+    let currentListId = '';
 
-    for (const block of blocks) {
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+      const indent = '  '.repeat(indentLevel);
+      
+      // Track list context for proper numbering
+      const isNumberedList = block.type === 'numbered_list_item';
+      const isBulletedList = block.type === 'bulleted_list_item';
+      const isList = isNumberedList || isBulletedList;
+      
+      // Generate a unique ID for the current list context
+      const listId = `${indentLevel}-${isNumberedList ? 'numbered' : isBulletedList ? 'bulleted' : 'none'}`;
+      
+      // Handle list transitions
+      if (isList) {
+        // If this is a new list or switching list types
+        if (currentListType !== block.type || currentListId !== listId) {
+          // Reset numbering for new numbered lists
+          if (isNumberedList && (currentListType !== block.type || currentListId !== listId)) {
+            listNumbering[listId] = 1;
+          }
+          currentListType = block.type;
+          currentListId = listId;
+        }
+      } else {
+        // Not a list item, reset list context
+        currentListType = null;
+        currentListId = '';
+      }
+
+      // Process block based on type
       if (block.type === 'paragraph') {
         const text = block.paragraph.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += text + '\n\n';
+        content += `${indent}${text}\n\n`;
       } else if (block.type === 'heading_1') {
         const text = block.heading_1.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += '# ' + text + '\n\n';
+        content += `${indent}# ${text}\n\n`;
       } else if (block.type === 'heading_2') {
         const text = block.heading_2.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += '## ' + text + '\n\n';
+        content += `${indent}## ${text}\n\n`;
       } else if (block.type === 'heading_3') {
         const text = block.heading_3.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += '### ' + text + '\n\n';
+        content += `${indent}### ${text}\n\n`;
       } else if (block.type === 'bulleted_list_item') {
         const text = block.bulleted_list_item.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += '• ' + text + '\n';
+        content += `${indent}• ${text}`;
+        
+        // Handle child blocks for list items
+        if (block.has_children) {
+          const childBlocks = await this.fetchAllBlocks(block.id);
+          const childContent = await this.extractContentFromBlocks(childBlocks, listNumbering, indentLevel + 1);
+          if (childContent.trim()) {
+            content += '\n' + childContent;
+          }
+        }
+        content += '\n';
       } else if (block.type === 'numbered_list_item') {
         const text = block.numbered_list_item.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += '1. ' + text + '\n';
+        
+        // Use sequential numbering
+        const number = listNumbering[listId] || 1;
+        content += `${indent}${number}. ${text}`;
+        
+        // Increment the counter for this list
+        listNumbering[listId] = number + 1;
+        
+        // Handle child blocks for list items
+        if (block.has_children) {
+          const childBlocks = await this.fetchAllBlocks(block.id);
+          const childContent = await this.extractContentFromBlocks(childBlocks, listNumbering, indentLevel + 1);
+          if (childContent.trim()) {
+            content += '\n' + childContent;
+          }
+        }
+        content += '\n';
       } else if (block.type === 'code') {
         const text = block.code.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
         const language = block.code.language || '';
-        content += '```' + language + '\n' + text + '\n```\n\n';
+        content += `${indent}\`\`\`${language}\n${text}\n${indent}\`\`\`\n\n`;
       } else if (block.type === 'quote') {
         const text = block.quote.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += '> ' + text + '\n\n';
+        content += `${indent}> ${text}\n\n`;
       } else if (block.type === 'divider') {
-        content += '---\n\n';
-      } else if (block.has_children) {
-        // Recursively get all content from child blocks
-        const allChildBlocks = await this.fetchAllBlocks(block.id);
-        const childContent = await this.extractContentFromBlocks(allChildBlocks);
+        content += `${indent}---\n\n`;
+      } else if (block.type === 'toggle') {
+        const text = block.toggle.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        content += `${indent}**${text}**\n\n`;
+        
+        if (block.has_children) {
+          const childBlocks = await this.fetchAllBlocks(block.id);
+          const childContent = await this.extractContentFromBlocks(childBlocks, listNumbering, indentLevel + 1);
+          content += childContent;
+        }
+      } else if (block.type === 'to_do') {
+        const text = block.to_do.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        const checked = block.to_do.checked ? 'x' : ' ';
+        content += `${indent}- [${checked}] ${text}\n`;
+        
+        if (block.has_children) {
+          const childBlocks = await this.fetchAllBlocks(block.id);
+          const childContent = await this.extractContentFromBlocks(childBlocks, listNumbering, indentLevel + 1);
+          content += childContent;
+        }
+      } else if (block.type === 'callout') {
+        const text = block.callout.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        const emoji = block.callout.icon?.emoji || '';
+        content += `${indent}> ${emoji} **Note:** ${text}\n\n`;
+        
+        if (block.has_children) {
+          const childBlocks = await this.fetchAllBlocks(block.id);
+          const childContent = await this.extractContentFromBlocks(childBlocks, listNumbering, indentLevel + 1);
+          content += childContent;
+        }
+      } else if (block.type === 'table') {
+        if (block.has_children) {
+          const tableRows = await this.fetchAllBlocks(block.id);
+          content += await this.formatTableContent(tableRows, indent);
+        }
+      } else if (block.type === 'image') {
+        // Handle image blocks
+        let imageUrl = '';
+        if (block.image.type === 'external') {
+          imageUrl = block.image.external.url;
+        } else if (block.image.type === 'file') {
+          imageUrl = block.image.file.url;
+        }
+        
+        const caption = block.image.caption?.length > 0
+          ? block.image.caption.map((c: any) => c.plain_text).join('')
+          : 'Image';
+          
+        content += `${indent}![${caption}](${imageUrl})\n\n`;
+      } else if (block.type === 'bookmark') {
+        // Handle bookmark blocks
+        const url = block.bookmark.url;
+        const caption = block.bookmark.caption?.length > 0
+          ? block.bookmark.caption.map((c: any) => c.plain_text).join('')
+          : url;
+          
+        content += `${indent}[${caption}](${url})\n\n`;
+      } else if (block.type === 'embed' || block.type === 'video' || block.type === 'audio' || block.type === 'file' || block.type === 'pdf') {
+        // Handle embed, video, audio, file, and PDF blocks
+        let url = '';
+        if (block[block.type].type === 'external') {
+          url = block[block.type].external.url;
+        } else if (block[block.type].type === 'file') {
+          url = block[block.type].file.url;
+        }
+        
+        content += `${indent}[${block.type.charAt(0).toUpperCase() + block.type.slice(1)}](${url})\n\n`;
+      } else if (block.type === 'equation') {
+        // Handle equation blocks
+        const expression = block.equation.expression;
+        content += `${indent}$$\n${expression}\n$$\n\n`;
+      } else if (block.type === 'synced_block') {
+        // Handle synced blocks by fetching their children
+        if (block.has_children) {
+          const childBlocks = await this.fetchAllBlocks(block.id);
+          const childContent = await this.extractContentFromBlocks(childBlocks, listNumbering, indentLevel);
+          content += childContent;
+        }
+      } else if (block.type === 'template') {
+        // Handle template blocks
+        const text = block.template.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        content += `${indent}*Template:* ${text}\n\n`;
+      } else if (block.type === 'link_to_page') {
+        // Handle link to page blocks
+        let pageId = '';
+        if (block.link_to_page.type === 'page_id') {
+          pageId = block.link_to_page.page_id;
+        } else if (block.link_to_page.type === 'database_id') {
+          pageId = block.link_to_page.database_id;
+        }
+        
+        content += `${indent}[Link to page](notion://page/${pageId})\n\n`;
+      } else if (block.type === 'column_list' && block.has_children) {
+        // Handle column lists by processing each column
+        const columns = await this.fetchAllBlocks(block.id);
+        for (const column of columns) {
+          if (column.type === 'column' && column.has_children) {
+            const columnBlocks = await this.fetchAllBlocks(column.id);
+            const columnContent = await this.extractContentFromBlocks(columnBlocks, listNumbering, indentLevel);
+            content += columnContent;
+          }
+        }
+      } else if (block.has_children && !isList) {
+        // For other block types with children that aren't already handled
+        const childBlocks = await this.fetchAllBlocks(block.id);
+        const childContent = await this.extractContentFromBlocks(childBlocks, listNumbering, indentLevel);
         content += childContent;
       }
     }
 
     return content;
+  }
+  
+  // Helper method to format table content
+  private async formatTableContent(tableRows: any[], indent: string): Promise<string> {
+    let tableContent = '';
+    let headerRow: string[] = [];
+    let hasProcessedHeader = false;
+    
+    for (const row of tableRows) {
+      if (row.type === 'table_row') {
+        const cells = row.table_row.cells.map((cell: any[]) =>
+          cell.map((textPart: any) => textPart.plain_text).join('')
+        );
+        
+        if (!hasProcessedHeader) {
+          // First row is the header
+          headerRow = cells;
+          hasProcessedHeader = true;
+          
+          // Add header row
+          tableContent += `${indent}| ${cells.join(' | ')} |\n`;
+          
+          // Add separator row
+          tableContent += `${indent}| ${cells.map(() => '---').join(' | ')} |\n`;
+        } else {
+          // Data rows
+          tableContent += `${indent}| ${cells.join(' | ')} |\n`;
+        }
+      }
+    }
+    
+    return tableContent + '\n';
   }
 
   // Helper method to split text into chunks that respect Notion's 2000 character limit
@@ -1827,7 +2025,7 @@ class PromptBookServer {
       const allBlocks = await this.fetchAllBlocksWithClient(promptId, sourceNotion);
       
       // 3. Extract the content as plain text
-      const content = await this.extractContentFromBlocksWithClient(allBlocks, sourceNotion);
+      const content = await this.extractContentFromBlocksWithClient(allBlocks, sourceNotion, {}, 0);
 
       // 4. Create a new prompt in the destination book
       const response = await destinationNotion.pages.create({
@@ -1937,57 +2135,223 @@ class PromptBookServer {
   }
 
   // Helper method to extract content from blocks with a specific Notion client
-  private async extractContentFromBlocksWithClient(blocks: any[], notionClient: Client): Promise<string> {
+  private async extractContentFromBlocksWithClient(blocks: any[], notionClient: Client, listNumbering: { [key: string]: number } = {}, indentLevel: number = 0): Promise<string> {
     let content = '';
+    let currentListType: string | null = null;
+    let currentListId = '';
 
-    for (const block of blocks) {
+    for (let i = 0; i < blocks.length; i++) {
+      const block = blocks[i];
+      const indent = '  '.repeat(indentLevel);
+      
+      // Track list context for proper numbering
+      const isNumberedList = block.type === 'numbered_list_item';
+      const isBulletedList = block.type === 'bulleted_list_item';
+      const isList = isNumberedList || isBulletedList;
+      
+      // Generate a unique ID for the current list context
+      const listId = `${indentLevel}-${isNumberedList ? 'numbered' : isBulletedList ? 'bulleted' : 'none'}`;
+      
+      // Handle list transitions
+      if (isList) {
+        // If this is a new list or switching list types
+        if (currentListType !== block.type || currentListId !== listId) {
+          // Reset numbering for new numbered lists
+          if (isNumberedList && (currentListType !== block.type || currentListId !== listId)) {
+            listNumbering[listId] = 1;
+          }
+          currentListType = block.type;
+          currentListId = listId;
+        }
+      } else {
+        // Not a list item, reset list context
+        currentListType = null;
+        currentListId = '';
+      }
+
+      // Process block based on type
       if (block.type === 'paragraph') {
         const text = block.paragraph.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += text + '\n\n';
+        content += `${indent}${text}\n\n`;
       } else if (block.type === 'heading_1') {
         const text = block.heading_1.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += '# ' + text + '\n\n';
+        content += `${indent}# ${text}\n\n`;
       } else if (block.type === 'heading_2') {
         const text = block.heading_2.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += '## ' + text + '\n\n';
+        content += `${indent}## ${text}\n\n`;
       } else if (block.type === 'heading_3') {
         const text = block.heading_3.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += '### ' + text + '\n\n';
+        content += `${indent}### ${text}\n\n`;
       } else if (block.type === 'bulleted_list_item') {
         const text = block.bulleted_list_item.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += '• ' + text + '\n';
+        content += `${indent}• ${text}`;
+        
+        // Handle child blocks for list items
+        if (block.has_children) {
+          const childBlocks = await this.fetchAllBlocksWithClient(block.id, notionClient);
+          const childContent = await this.extractContentFromBlocksWithClient(childBlocks, notionClient, listNumbering, indentLevel + 1);
+          if (childContent.trim()) {
+            content += '\n' + childContent;
+          }
+        }
+        content += '\n';
       } else if (block.type === 'numbered_list_item') {
         const text = block.numbered_list_item.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += '1. ' + text + '\n';
+        
+        // Use sequential numbering
+        const number = listNumbering[listId] || 1;
+        content += `${indent}${number}. ${text}`;
+        
+        // Increment the counter for this list
+        listNumbering[listId] = number + 1;
+        
+        // Handle child blocks for list items
+        if (block.has_children) {
+          const childBlocks = await this.fetchAllBlocksWithClient(block.id, notionClient);
+          const childContent = await this.extractContentFromBlocksWithClient(childBlocks, notionClient, listNumbering, indentLevel + 1);
+          if (childContent.trim()) {
+            content += '\n' + childContent;
+          }
+        }
+        content += '\n';
       } else if (block.type === 'code') {
         const text = block.code.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
         const language = block.code.language || '';
-        content += '```' + language + '\n' + text + '\n```\n\n';
+        content += `${indent}\`\`\`${language}\n${text}\n${indent}\`\`\`\n\n`;
       } else if (block.type === 'quote') {
         const text = block.quote.rich_text
           .map((textPart: any) => textPart.plain_text)
           .join('');
-        content += '> ' + text + '\n\n';
+        content += `${indent}> ${text}\n\n`;
       } else if (block.type === 'divider') {
-        content += '---\n\n';
-      } else if (block.has_children) {
-        // Recursively get all content from child blocks
-        const allChildBlocks = await this.fetchAllBlocksWithClient(block.id, notionClient);
-        const childContent = await this.extractContentFromBlocksWithClient(allChildBlocks, notionClient);
+        content += `${indent}---\n\n`;
+      } else if (block.type === 'toggle') {
+        const text = block.toggle.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        content += `${indent}**${text}**\n\n`;
+        
+        if (block.has_children) {
+          const childBlocks = await this.fetchAllBlocksWithClient(block.id, notionClient);
+          const childContent = await this.extractContentFromBlocksWithClient(childBlocks, notionClient, listNumbering, indentLevel + 1);
+          content += childContent;
+        }
+      } else if (block.type === 'to_do') {
+        const text = block.to_do.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        const checked = block.to_do.checked ? 'x' : ' ';
+        content += `${indent}- [${checked}] ${text}\n`;
+        
+        if (block.has_children) {
+          const childBlocks = await this.fetchAllBlocksWithClient(block.id, notionClient);
+          const childContent = await this.extractContentFromBlocksWithClient(childBlocks, notionClient, listNumbering, indentLevel + 1);
+          content += childContent;
+        }
+      } else if (block.type === 'callout') {
+        const text = block.callout.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        const emoji = block.callout.icon?.emoji || '';
+        content += `${indent}> ${emoji} **Note:** ${text}\n\n`;
+        
+        if (block.has_children) {
+          const childBlocks = await this.fetchAllBlocksWithClient(block.id, notionClient);
+          const childContent = await this.extractContentFromBlocksWithClient(childBlocks, notionClient, listNumbering, indentLevel + 1);
+          content += childContent;
+        }
+      } else if (block.type === 'table') {
+        if (block.has_children) {
+          const tableRows = await this.fetchAllBlocksWithClient(block.id, notionClient);
+          content += await this.formatTableContent(tableRows, indent);
+        }
+      } else if (block.type === 'image') {
+        // Handle image blocks
+        let imageUrl = '';
+        if (block.image.type === 'external') {
+          imageUrl = block.image.external.url;
+        } else if (block.image.type === 'file') {
+          imageUrl = block.image.file.url;
+        }
+        
+        const caption = block.image.caption?.length > 0
+          ? block.image.caption.map((c: any) => c.plain_text).join('')
+          : 'Image';
+          
+        content += `${indent}![${caption}](${imageUrl})\n\n`;
+      } else if (block.type === 'bookmark') {
+        // Handle bookmark blocks
+        const url = block.bookmark.url;
+        const caption = block.bookmark.caption?.length > 0
+          ? block.bookmark.caption.map((c: any) => c.plain_text).join('')
+          : url;
+          
+        content += `${indent}[${caption}](${url})\n\n`;
+      } else if (block.type === 'embed' || block.type === 'video' || block.type === 'audio' || block.type === 'file' || block.type === 'pdf') {
+        // Handle embed, video, audio, file, and PDF blocks
+        let url = '';
+        if (block[block.type].type === 'external') {
+          url = block[block.type].external.url;
+        } else if (block[block.type].type === 'file') {
+          url = block[block.type].file.url;
+        }
+        
+        content += `${indent}[${block.type.charAt(0).toUpperCase() + block.type.slice(1)}](${url})\n\n`;
+      } else if (block.type === 'equation') {
+        // Handle equation blocks
+        const expression = block.equation.expression;
+        content += `${indent}$$\n${expression}\n$$\n\n`;
+      } else if (block.type === 'synced_block') {
+        // Handle synced blocks by fetching their children
+        if (block.has_children) {
+          const childBlocks = await this.fetchAllBlocksWithClient(block.id, notionClient);
+          const childContent = await this.extractContentFromBlocksWithClient(childBlocks, notionClient, listNumbering, indentLevel);
+          content += childContent;
+        }
+      } else if (block.type === 'template') {
+        // Handle template blocks
+        const text = block.template.rich_text
+          .map((textPart: any) => textPart.plain_text)
+          .join('');
+        content += `${indent}*Template:* ${text}\n\n`;
+      } else if (block.type === 'link_to_page') {
+        // Handle link to page blocks
+        let pageId = '';
+        if (block.link_to_page.type === 'page_id') {
+          pageId = block.link_to_page.page_id;
+        } else if (block.link_to_page.type === 'database_id') {
+          pageId = block.link_to_page.database_id;
+        }
+        
+        content += `${indent}[Link to page](notion://page/${pageId})\n\n`;
+      } else if (block.type === 'column_list' && block.has_children) {
+        // Handle column lists by processing each column
+        const columns = await this.fetchAllBlocksWithClient(block.id, notionClient);
+        for (const column of columns) {
+          if (column.type === 'column' && column.has_children) {
+            const columnBlocks = await this.fetchAllBlocksWithClient(column.id, notionClient);
+            const columnContent = await this.extractContentFromBlocksWithClient(columnBlocks, notionClient, listNumbering, indentLevel);
+            content += columnContent;
+          }
+        }
+      } else if (block.has_children && !isList) {
+        // For other block types with children that aren't already handled
+        const childBlocks = await this.fetchAllBlocksWithClient(block.id, notionClient);
+        const childContent = await this.extractContentFromBlocksWithClient(childBlocks, notionClient, listNumbering, indentLevel);
         content += childContent;
       }
     }
