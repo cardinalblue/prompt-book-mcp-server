@@ -1436,7 +1436,8 @@ class PromptBookServer {
           .map((textPart: any) => textPart.plain_text)
           .join('');
         const language = block.code.language || '';
-        content += `${indent}\`\`\`${language}\n${text}\n${indent}\`\`\`\n\n`;
+        // Use HTML code tags for code blocks to avoid markdown formatting issues
+        content += `${indent}<pre><code class="${language}">\n${text}\n</code></pre>\n\n`;
       } else if (block.type === 'quote') {
         const text = block.quote.rich_text
           .map((textPart: any) => textPart.plain_text)
@@ -2231,7 +2232,8 @@ class PromptBookServer {
           .map((textPart: any) => textPart.plain_text)
           .join('');
         const language = block.code.language || '';
-        content += `${indent}\`\`\`${language}\n${text}\n${indent}\`\`\`\n\n`;
+        // Use HTML code tags for code blocks to avoid markdown formatting issues
+        content += `${indent}<pre><code class="${language}">\n${text}\n</code></pre>\n\n`;
       } else if (block.type === 'quote') {
         const text = block.quote.rich_text
           .map((textPart: any) => textPart.plain_text)
