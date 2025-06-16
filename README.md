@@ -222,3 +222,31 @@ The configuration file at `~/.mcp_config/prompt_book.json` has the following str
   ],
   "activePromptBookId": "uuid-string"
 }
+```
+
+### Environment Variable Configuration (DEFAULT_BOOKS)
+
+You can provide a default configuration using the `DEFAULT_BOOKS` environment variable. This is particularly useful for:
+
+- Setting up prompt books automatically in deployment environments
+- Providing default configurations for team members
+- Pre-populating the server with prompt book configurations
+
+The `DEFAULT_BOOKS` environment variable should contain a valid JSON string matching the configuration file structure above.
+
+**Important Notes:**
+- The `DEFAULT_BOOKS` environment variable is only used when the configuration file `~/.mcp_config/prompt_book.json` doesn't exist yet
+- If the configuration file already exists, the environment variable is ignored
+- If the JSON in `DEFAULT_BOOKS` is invalid or doesn't match the expected structure, it will be ignored and an empty configuration will be created instead
+
+**Example usage:**
+
+```bash
+# Set the environment variable
+export DEFAULT_BOOKS='{"promptBooks":[{"id":"12345678-1234-1234-1234-123456789012","name":"Default Prompt Book","notion_token":"secret_abc123...","notion_database_id":"1a748be2b63280988d9bc5f89918431d"}],"activePromptBookId":"12345678-1234-1234-1234-123456789012"}'
+
+# Run the server - it will use the DEFAULT_BOOKS configuration if no config file exists
+npx @piccollage/prompt-book-mcp-server
+```
+
+This feature is especially useful when deploying the server in containerized environments or when you want to provide team members with a pre-configured setup.

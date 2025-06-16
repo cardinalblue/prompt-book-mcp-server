@@ -94,8 +94,37 @@ class PromptBookServer {
         fs.mkdirSync(CONFIG_DIR, { recursive: true });
       }
 
-      // Check if config file exists, create empty config if not
+      // Check if config file exists
       if (!fs.existsSync(CONFIG_FILE)) {
+        // Check for DEFAULT_BOOKS environment variable
+        const defaultBooksEnv = process.env.DEFAULT_BOOKS;
+        
+        if (defaultBooksEnv) {
+          try {
+            // Parse the environment variable as JSON
+            const defaultBooks = JSON.parse(defaultBooksEnv);
+            
+            // Validate that it's a valid config structure
+            if (defaultBooks && typeof defaultBooks === 'object' && Array.isArray(defaultBooks.promptBooks)) {
+              console.error('Using DEFAULT_BOOKS from environment variable');
+              this.config = defaultBooks;
+              this.saveConfig();
+              
+              // Set active prompt book if one is specified
+              if (this.config.activePromptBookId) {
+                this.setActivePromptBook(this.config.activePromptBookId);
+              }
+              return;
+            } else {
+              console.error('DEFAULT_BOOKS environment variable is not a valid config structure, using empty config');
+            }
+          } catch (parseError) {
+            console.error('Error parsing DEFAULT_BOOKS environment variable:', parseError);
+            console.error('Using empty config instead');
+          }
+        }
+        
+        // If no DEFAULT_BOOKS or parsing failed, create empty config
         this.config = { promptBooks: [] };
         this.saveConfig();
         return;
