@@ -6,6 +6,9 @@
   "bin": {
     "prompt-book-mcp-server": "./build/index.js"
   },
+  "engines": {
+    "node": ">=24.22.1"
+  },
   "scripts": {
     "prepare": "npm run build",
     "build": "tsc && node -e \"require('fs').chmodSync('build/index.js', '755')\"",
